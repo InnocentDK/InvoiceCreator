@@ -1,0 +1,24 @@
+# Generated invoices/artifacts
+invoices/
+invoice_app/invoices/
+
+# Generated documents (keep only committed templates)
+*.pdf
+*.docx
+
+# SQLite and local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Python cache/build
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment and logs
+.env
+.env.*
+*.log

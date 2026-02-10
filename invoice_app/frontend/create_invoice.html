@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Создание счета</title>
+  <link rel="stylesheet" href="/frontend/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <header class="page-header">
+      <h1>Создание счета</h1>
+      <a class="btn" href="/">← К списку счетов</a>
+    </header>
+
+    <form id="invoice-form" class="card form-grid">
+      <section>
+        <h2>Организация</h2>
+        <label>Выберите организацию
+          <select id="organization" required></select>
+        </label>
+      </section>
+
+      <section>
+        <h2>Контрагент</h2>
+        <div class="row">
+          <label>ИНН
+            <input id="contractor-inn" minlength="10" maxlength="12" required />
+          </label>
+          <button class="btn" type="button" id="search-contractor">Найти по ИНН</button>
+        </div>
+        <label>Наименование
+          <input id="contractor-name" required />
+        </label>
+        <label>КПП
+          <input id="contractor-kpp" />
+        </label>
+        <label>Адрес
+          <input id="contractor-address" required />
+        </label>
+      </section>
+
+      <section>
+        <h2>Услуги</h2>
+        <div id="services-container"></div>
+        <button class="btn" type="button" id="add-service">+ Добавить услугу</button>
+      </section>
+
+      <section>
+        <h2>Итого</h2>
+        <p class="total">Сумма: <strong id="total">0.00</strong> ₽</p>
+      </section>
+
+      <button class="btn primary" type="submit">Сохранить счет</button>
+    </form>
+  </main>
+
+  <template id="service-row-template">
+    <article class="service-row">
+      <div class="row">
+        <label>Услуга
+          <select class="service-select" required></select>
+        </label>
+        <label>Кол-во
+          <input class="service-qty" type="number" min="1" step="1" value="1" required />
+        </label>
+        <label>Цена
+          <input class="service-price" type="number" min="0.01" step="0.01" required />
+        </label>
+        <button class="btn danger remove-service" type="button">Удалить</button>
+      </div>
+      <label>Описание
+        <input class="service-description" placeholder="Описание услуги" />
+      </label>
+      <div class="notes-container"></div>
+    </article>
+  </template>
+
+  <script type="module" src="/frontend/app.js"></script>
+</body>
+</html>
