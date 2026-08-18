@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from calendar import monthcalendar
 from datetime import date
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from hockey_bot.bot.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from hockey_bot.models.enums import EventType, RU_LABELS
 from hockey_bot.models.tables import Event
@@ -61,4 +61,5 @@ def calendar_keyboard(year: int, month: int, event_days: set[int]) -> InlineKeyb
         InlineKeyboardButton(text="Сегодня", callback_data=f"cal:month:{today.year}:{today.month}"),
         InlineKeyboardButton(text="▶️", callback_data=f"cal:month:{next_y}:{next_m}"),
     ])
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="nav:main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
