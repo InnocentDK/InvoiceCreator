@@ -1,0 +1,7 @@
+aiogram>=3.10,<4
+SQLAlchemy>=2.0,<3
+APScheduler>=3.10,<4
+openpyxl>=3.1,<4
+python-dotenv>=1.0,<2
+pydantic>=2.7,<3
+pytest>=8.0,<9
