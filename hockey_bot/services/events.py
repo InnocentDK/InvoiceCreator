@@ -9,6 +9,7 @@ from calendar import monthrange
 from hockey_bot.models.enums import AttendanceStatus, EventStatus, EventType, GameParticipation, GameResult, HomeAway, RecurrenceRule
 from hockey_bot.models.tables import Arena, Event, EventRecurrence, Expense, League, Season, Team, User
 from hockey_bot.services.validation import parse_score
+from hockey_bot.services.times import utcnow_naive
 
 
 @dataclass(frozen=True)
@@ -86,7 +87,7 @@ def soft_delete_event(session: Session, event_id: int) -> bool:
     event = session.get(Event, event_id)
     if not event or event.deleted_at:
         return False
-    event.deleted_at = datetime.utcnow()
+    event.deleted_at = utcnow_naive()
     session.commit()
     return True
 
@@ -137,3 +138,35 @@ def set_game_score(session: Session, event_id: int, score: str) -> Event:
 
 def total_expenses(session: Session, event_id: int) -> int:
     return session.scalar(select(func.coalesce(func.sum(Expense.amount_rub), 0)).where(Expense.event_id == event_id)) or 0
+
+
+def set_attendance(session: Session, event_id: int, attendance: AttendanceStatus) -> Event:
+    event = session.get(Event, event_id)
+    if not event:
+        raise ValueError("Событие не найдено")
+    event.attendance = attendance
+    session.commit()
+    return event
+
+
+def set_participation(session: Session, event_id: int, participation: GameParticipation) -> Event:
+    event = session.get(Event, event_id)
+    if not event:
+        raise ValueError("Событие не найдено")
+    event.participation = participation
+    if participation == GameParticipation.NO:
+        event.status = EventStatus.DO_NOT_PARTICIPATE
+    session.commit()
+    return event
+
+
+def update_event_fields(session: Session, event_id: int, **fields) -> Event:
+    event = session.get(Event, event_id)
+    if not event:
+        raise ValueError("Событие не найдено")
+    for key, value in fields.items():
+        if hasattr(event, key):
+            setattr(event, key, value)
+    _snapshot(session, event)
+    session.commit()
+    return event

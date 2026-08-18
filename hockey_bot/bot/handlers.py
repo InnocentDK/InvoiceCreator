@@ -5,11 +5,13 @@ from datetime import date, datetime
 from pathlib import Path
 
 from aiogram import Router
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, StateFilter
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from hockey_bot.bot.states import DirectoryForm, EventForm, ExpenseForm, ScoreForm
 from hockey_bot.bot.keyboards import (
     add_keyboard,
     delete_confirm_keyboard,
@@ -25,9 +27,12 @@ from hockey_bot.bot.keyboards import (
 from hockey_bot.core.config import Settings
 from hockey_bot.excel.exporter import export_excel
 from hockey_bot.models.tables import Arena, Event, Expense, League, Season, Team, User
-from hockey_bot.services.events import month_events, restore_event, soft_delete_event, total_expenses, upcoming_events
+from hockey_bot.services.events import EventDraft, add_expense, create_event, create_recurring_events, month_events, restore_event, set_game_score, soft_delete_event, total_expenses, upcoming_events
 from hockey_bot.services.rendering import MONTHS, calendar_keyboard, event_card, event_title, format_rub
 from hockey_bot.services.statistics import finance_month, sports_stats
+from hockey_bot.services.directories import create_named
+from hockey_bot.models.enums import EventType, HomeAway, RecurrenceRule
+from hockey_bot.services.validation import parse_non_negative_amount, parse_ru_date, parse_time
 
 DIRECTORY_MODELS = {
     "leagues": (League, "🏆 Лиги"),
@@ -82,7 +87,8 @@ def build_router(settings: Settings, sessions: sessionmaker) -> Router:
         await show_main(message)
 
     @router.callback_query(lambda c: c.data == "nav:main")
-    async def nav_main(callback: CallbackQuery):
+    async def nav_main(callback: CallbackQuery, state: FSMContext):
+        await state.clear()
         await show_main(callback)
 
     @router.callback_query(lambda c: c.data == "add")
@@ -91,12 +97,11 @@ def build_router(settings: Settings, sessions: sessionmaker) -> Router:
         await callback.answer()
 
     @router.callback_query(lambda c: c.data and c.data.startswith("add:"))
-    async def add_placeholder(callback: CallbackQuery):
-        await callback.message.edit_text(
-            "Пошаговый сценарий добавления будет открыт здесь.\n"
-            "Все экраны добавления теперь содержат кнопку возврата назад.",
-            reply_markup=add_keyboard(),
-        )
+    async def add_placeholder(callback: CallbackQuery, state: FSMContext):
+        event_type = callback.data.split(":", 1)[1]
+        await state.set_state(EventForm.date)
+        await state.update_data(event_type=event_type)
+        await callback.message.edit_text("Введите дату события в формате ДД.ММ.ГГГГ", reply_markup=add_keyboard())
         await callback.answer()
 
     @router.callback_query(lambda c: c.data == "calendar")
@@ -155,8 +160,11 @@ def build_router(settings: Settings, sessions: sessionmaker) -> Router:
             await callback.message.edit_text("\n".join(lines), reply_markup=expenses_keyboard(event_id))
             await callback.answer()
             return
-        if action in {"edit", "expense"}:
-            await callback.answer("Пошаговый ввод будет добавлен следующим этапом; кнопка Назад уже доступна.", show_alert=True)
+        if action == "expense" and len(parts) > 3 and parts[3] == "new":
+            await callback.answer()
+            return
+        if action == "edit":
+            await callback.answer("Редактирование будет выполнено через сервис update_event_fields; используйте создание заново для MVP.", show_alert=True)
             return
         with sessions() as session:
             event = session.get(Event, event_id)
@@ -232,6 +240,153 @@ def build_router(settings: Settings, sessions: sessionmaker) -> Router:
         else:
             await callback.message.edit_text("Раздел подготовлен для следующего шага настройки.", reply_markup=settings_keyboard())
         await callback.answer()
+
+    @router.callback_query(lambda c: c.data and c.data.startswith("dir:") and c.data.endswith(":new"))
+    async def directory_new(callback: CallbackQuery, state: FSMContext):
+        kind = callback.data.split(":")[1]
+        await state.set_state(DirectoryForm.name)
+        await state.update_data(kind=kind)
+        await callback.message.edit_text("Введите название", reply_markup=directory_keyboard(kind))
+        await callback.answer()
+
+    @router.message(DirectoryForm.name)
+    async def directory_name(message: Message, state: FSMContext):
+        data = await state.get_data()
+        kind = data["kind"]
+        if kind == "arenas":
+            await state.update_data(name=message.text.strip())
+            await state.set_state(DirectoryForm.arena_address)
+            await message.answer("Введите адрес арены")
+            return
+        model, title = DIRECTORY_MODELS[kind]
+        with sessions() as session:
+            create_named(session, model, message.text)
+        await state.clear()
+        await message.answer(f"✅ {title}: сохранено", reply_markup=settings_keyboard())
+
+    @router.message(DirectoryForm.arena_address)
+    async def arena_address(message: Message, state: FSMContext):
+        data = await state.get_data()
+        with sessions() as session:
+            create_named(session, Arena, data["name"], address=message.text.strip())
+        await state.clear()
+        await message.answer("✅ Арена сохранена", reply_markup=settings_keyboard())
+
+    @router.message(EventForm.date)
+    async def event_date(message: Message, state: FSMContext):
+        try:
+            value = parse_ru_date(message.text)
+        except ValueError as exc:
+            await message.answer(str(exc))
+            return
+        await state.update_data(date=value)
+        await state.set_state(EventForm.time)
+        await message.answer("Введите время в формате ЧЧ:ММ")
+
+    @router.message(EventForm.time)
+    async def event_time(message: Message, state: FSMContext):
+        try:
+            value = parse_time(message.text)
+        except ValueError as exc:
+            await message.answer(str(exc))
+            return
+        await state.update_data(time=value)
+        data = await state.get_data()
+        if data["event_type"] in {"game", "away_game"}:
+            await state.set_state(EventForm.opponent)
+            await message.answer("Введите название соперника")
+        elif data["event_type"] == "training":
+            await state.set_state(EventForm.team)
+            await message.answer("Введите название команды для тренировки")
+        else:
+            await state.set_state(EventForm.arena)
+            await message.answer("Введите название арены")
+
+    @router.message(EventForm.team)
+    async def event_team(message: Message, state: FSMContext):
+        await state.update_data(team_name=message.text.strip())
+        await state.set_state(EventForm.arena)
+        await message.answer("Введите название арены")
+
+    @router.message(EventForm.opponent)
+    async def event_opponent(message: Message, state: FSMContext):
+        await state.update_data(opponent_name=message.text.strip())
+        await state.set_state(EventForm.home_away)
+        await message.answer("Где игра? Напишите: дома или выезд")
+
+    @router.message(EventForm.home_away)
+    async def event_home_away(message: Message, state: FSMContext):
+        text = message.text.lower().strip()
+        if text not in {"дома", "выезд", "на выезде"}:
+            await message.answer("Введите `дома` или `выезд`")
+            return
+        await state.update_data(home_away=HomeAway.HOME if text == "дома" else HomeAway.AWAY)
+        await state.set_state(EventForm.arena)
+        await message.answer("Введите название арены")
+
+    @router.message(EventForm.arena)
+    async def event_arena(message: Message, state: FSMContext):
+        await state.update_data(arena_name=message.text.strip())
+        await state.set_state(EventForm.cost)
+        await message.answer("Введите стоимость/плановый расход числом, можно 0")
+
+    @router.message(EventForm.cost)
+    async def event_cost(message: Message, state: FSMContext):
+        try:
+            cost = parse_non_negative_amount(message.text)
+        except ValueError as exc:
+            await message.answer(str(exc))
+            return
+        data = await state.get_data()
+        event_type = data["event_type"]
+        with sessions() as session:
+            user = get_or_create_user(session, message.from_user.id)
+            arena = create_named(session, Arena, data.get("arena_name") or "Без арены")
+            team = None
+            opponent = None
+            own_team_id = user.current_own_team_id
+            if data.get("team_name"):
+                team = create_named(session, Team, data["team_name"])
+            if data.get("opponent_name"):
+                opponent = create_named(session, Team, data["opponent_name"])
+            draft = EventDraft(
+                user_id=user.id,
+                event_type=EventType(event_type),
+                event_date=data["date"],
+                event_time=data["time"],
+                team_id=team.id if team else None,
+                opponent_team_id=opponent.id if opponent else None,
+                own_team_id=own_team_id,
+                arena_id=arena.id,
+                home_away=data.get("home_away"),
+                cost_rub=cost,
+            )
+            event = create_event(session, draft)
+            if cost:
+                add_expense(session, event.id, cost)
+        await state.clear()
+        await message.answer(f"✅ Событие создано: #{event.id}", reply_markup=main_keyboard())
+
+    @router.callback_query(lambda c: c.data and c.data.startswith("event:") and c.data.endswith(":expense:new"))
+    async def expense_new(callback: CallbackQuery, state: FSMContext):
+        event_id = int(callback.data.split(":")[1])
+        await state.set_state(ExpenseForm.amount)
+        await state.update_data(event_id=event_id)
+        await callback.message.edit_text("Введите сумму расхода числом")
+        await callback.answer()
+
+    @router.message(ExpenseForm.amount)
+    async def expense_amount(message: Message, state: FSMContext):
+        try:
+            amount = parse_non_negative_amount(message.text)
+        except ValueError as exc:
+            await message.answer(str(exc))
+            return
+        data = await state.get_data()
+        with sessions() as session:
+            add_expense(session, data["event_id"], amount)
+        await state.clear()
+        await message.answer("✅ Расход добавлен", reply_markup=main_keyboard())
 
     @router.callback_query(lambda c: c.data and c.data.startswith("trash:restore:"))
     async def restore_from_trash(callback: CallbackQuery):

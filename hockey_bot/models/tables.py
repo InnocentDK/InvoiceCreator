@@ -4,6 +4,7 @@ from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, Text, 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from hockey_bot.db.session import Base
+from hockey_bot.services.times import utcnow_naive
 from hockey_bot.models.enums import AttendanceStatus, EventStatus, EventType, GameParticipation, GameResult, HomeAway, NotificationKind, RecurrenceRule
 
 
@@ -27,7 +28,7 @@ class OwnTeamHistory(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
-    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
     ended_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
 
@@ -105,7 +106,7 @@ class Expense(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
     amount_rub: Mapped[int] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
 
 
 class Notification(Base):

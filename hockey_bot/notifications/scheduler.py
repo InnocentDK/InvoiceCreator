@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
+from hockey_bot.services.times import utcnow_naive
 from hockey_bot.models.enums import NotificationKind
 from hockey_bot.models.tables import Event, Notification, User
 
@@ -12,7 +13,7 @@ def local_event_dt(event: Event, user: User) -> datetime:
 
 
 def planned_notifications(event: Event, user: User, now_utc: datetime | None = None) -> list[tuple[NotificationKind, datetime]]:
-    now_utc = now_utc or datetime.utcnow()
+    now_utc = now_utc or utcnow_naive()
     event_dt = local_event_dt(event, user)
     day_before = datetime.combine(event.event_date - timedelta(days=1), time(12, 0), tzinfo=ZoneInfo(user.timezone))
     candidates = [(NotificationKind.DAY_BEFORE, day_before), (NotificationKind.THREE_HOURS, event_dt - timedelta(hours=3))]

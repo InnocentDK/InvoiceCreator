@@ -53,3 +53,9 @@ def test_recurring_soft_delete_restore_and_stats(session):
     add_expense(session, events[0].id, 800)
     assert finance_month(session, user.id, date(2026, 9, 1), date(2026, 9, 30))["trainings"] == 800
     assert sports_stats(session, user.id)["training_count"] == 4
+
+
+def test_create_named_is_idempotent(session):
+    first = create_named(session, Team, "ХК Север")
+    second = create_named(session, Team, "ХК Север")
+    assert first.id == second.id
